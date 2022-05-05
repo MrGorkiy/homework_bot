@@ -35,7 +35,7 @@ PRACTICUM_TOKEN = os.getenv("PRACTICUM_TOKEN")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-RETRY_TIME = 600
+RETRY_TIME = 10
 ENDPOINT = "https://practicum.yandex.ru/api/user_api/homework_statuses/"
 HEADERS = {"Authorization": f"OAuth {PRACTICUM_TOKEN}"}
 
@@ -47,8 +47,7 @@ HOMEWORK_STATUSES = {
 
 
 def send_message(bot: Bot, message: str):
-    """
-    Функция отправляет сообщения в Telegram чат
+    """Функция отправляет сообщения в Telegram чат.
 
     Отправляет сообщение в Telegram чат, определяемый
     переменной окружения TELEGRAM_CHAT_ID
@@ -58,14 +57,12 @@ def send_message(bot: Bot, message: str):
     :param message: Строка с текстом сообщения
     :type message: str
     """
-
     bot.send_message(TELEGRAM_CHAT_ID, message)
     logging.info("Сообщение успешно отправлено")
 
 
 def get_api_answer(current_timestamp: int) -> dict:
-    """
-    Делает запрос к API-сервису
+    """Делает запрос к API-сервису.
 
     Функция get_api_answer() делает запрос к единственному эндпоинту
     API-сервиса. В качестве параметра функция получает временную метку.
@@ -78,7 +75,6 @@ def get_api_answer(current_timestamp: int) -> dict:
 
     :raises ApiError: Возникает ошибка при ошибках обращения к API
     """
-
     timestamp = current_timestamp or int(time.time())
     params = {"from_date": timestamp}
     homework_statuses = requests.get(ENDPOINT, headers=HEADERS, params=params)
@@ -92,8 +88,7 @@ def get_api_answer(current_timestamp: int) -> dict:
 
 
 def check_response(response) -> Union[bool, dict]:
-    """
-    Проверка API на корректность
+    """Проверка API на корректность.
 
     Функция проверяет ответ API на корректность.
     В качестве параметра функция получает ответ от API, в формате dict.
@@ -108,7 +103,6 @@ def check_response(response) -> Union[bool, dict]:
 
     :raises TokenError: Ошибка в случае некорректности ответа API
     """
-
     if not response['homeworks']:
         return False
     elif type(response["homeworks"]) != list:
@@ -118,9 +112,8 @@ def check_response(response) -> Union[bool, dict]:
 
 
 def parse_status(homework: dict) -> Union[bool, str]:
-    """
-    Функция извлекает из информации о конкретной домашней
-    работе статус работы.
+    """Функция извлекает информацию о конкретной домашней работе.
+
 
     :param homework: Один элемент из списка домашних работ.
     :type homework: dict
@@ -131,7 +124,6 @@ def parse_status(homework: dict) -> Union[bool, str]:
 
     :raises ParseNoneStatus: Недокументированный статус домашней работы
     """
-
     if homework:
         homework_name = homework["homework_name"]
         homework_status = homework["status"]
@@ -147,49 +139,29 @@ def parse_status(homework: dict) -> Union[bool, str]:
 
 
 def check_tokens() -> bool:
-    """
-    Функция проверяет доступность переменных с токенами в файле .evn
-    при его отсутствии, требуется создать, пример в .evn.example
+    """Функция проверяет доступность обязательных переменных.
 
-    :return: если все переменные возвращает True, иначе False
+    Функция проверяет доступность переменных с токенами в файле .evn
+    при его отсутствии, требуется создать, пример в .evn.example.
+
+    :return: если все переменные - возвращает True
     :rtype: bool
 
     :raises TokenError: Отсутствие обязательной переменной
     """
-
-    practicum_token_correct = False
-    telegram_token_correct = False
-    telegram_chat_id_correct = False
-
     try:
         if PRACTICUM_TOKEN:
-            practicum_token_correct = True
-        else:
-            raise TokenError
-    except TokenError:
-        logger.critical("Отсутствует PRACTICUM_TOKEN! РАБОТА ПРЕКРАЩЕНА")
-
-    try:
+            pass
         if TELEGRAM_TOKEN:
-            telegram_token_correct = True
-        else:
-            raise TokenError
-    except TokenError:
-        logger.critical("Отсутствует TELEGRAM_TOKEN! РАБОТА ПРЕКРАЩЕНА")
-
-    try:
+            pass
         if TELEGRAM_CHAT_ID:
-            telegram_chat_id_correct = True
+            pass
         else:
             raise TokenError
     except TokenError:
-        logger.critical("Отсутствует TELEGRAM_CHAT_ID! РАБОТА ПРЕКРАЩЕНА")
-
-    if (practicum_token_correct
-            and telegram_token_correct
-            and telegram_chat_id_correct):
+        logger.critical("Отсутствует обязательная переменная! Остановка")
+    else:
         return True
-    return False
 
 
 def main():
@@ -208,8 +180,6 @@ def main():
     bot = Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
 
-    status_error = 0
-    token_error = 0
     api_error = 0
 
     while True:
@@ -231,22 +201,14 @@ def main():
                 f"работы, обнаруженный в ответе API: {error_status}"
             )
             logger.error(message)
-            if status_error == 0:
-                send_message(bot, message)
-                logger.info("Отправка ошибки ParseNoneStatus")
-                status_error += 1
-            elif status_error > 10:
-                status_error = 0
+            send_message(bot, message)
+            logger.info("Отправка ошибки ParseNoneStatus")
             time.sleep(RETRY_TIME)
         except TokenError as error_token:
             message = f"Отсутствие ожидаемых ключей от API: {error_token}"
             logger.error(message)
-            if token_error == 0:
-                send_message(bot, message)
-                logger.info("Отправка ошибки TokenError")
-                token_error += 1
-            elif status_error > 10:
-                token_error = 0
+            send_message(bot, message)
+            logger.info("Отправка ошибки TokenError")
             time.sleep(RETRY_TIME)
         except ApiError as error_api:
             message = f"Нет доступа к API: {error_api}"
@@ -255,8 +217,6 @@ def main():
                 send_message(bot, message)
                 logger.info("Отправка ошибки ApiError")
                 api_error += 1
-            elif api_error > 10:
-                api_error = 0
             time.sleep(RETRY_TIME)
         except Exception as error:
             message = f"Сбой в работе программы: {error}"
