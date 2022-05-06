@@ -178,7 +178,9 @@ def main():
         sys.exit()
 
     bot = Bot(token=TELEGRAM_TOKEN)
-    current_timestamp = int(time.time())
+    #current_timestamp = int(time.time())
+
+    current_timestamp = 0
 
     api_error = 0
 
@@ -188,7 +190,7 @@ def main():
 
             check = check_response(response)
             if check:
-                status_homework = parse_status(check[:-1][0])
+                status_homework = parse_status(check[0])
                 send_message(bot, status_homework)
                 logger.info("Сообщение с новым статусом отправлено")
 
