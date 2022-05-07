@@ -10,3 +10,7 @@ class ApiError(Exception):
 
 class ParseNoneStatus(Exception):
     pass
+
+
+class TelegramBot(Exception):
+    pass

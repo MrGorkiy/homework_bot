@@ -6,10 +6,10 @@ from http import HTTPStatus
 from typing import Union
 
 import requests
-from telegram import Bot
+import telegram
 from dotenv import load_dotenv
 
-from exceptions import ApiError, TokenError, ParseNoneStatus
+from exceptions import ApiError, TokenError, ParseNoneStatus, TelegramBot
 
 load_dotenv()
 
@@ -46,7 +46,7 @@ HOMEWORK_STATUSES = {
 }
 
 
-def send_message(bot: Bot, message: str):
+def send_message(bot: telegram, message: str):
     """Функция отправляет сообщения в Telegram чат.
 
     Отправляет сообщение в Telegram чат, определяемый
@@ -57,8 +57,11 @@ def send_message(bot: Bot, message: str):
     :param message: Строка с текстом сообщения
     :type message: str
     """
-    bot.send_message(TELEGRAM_CHAT_ID, message)
-    logging.info("Сообщение успешно отправлено")
+    try:
+        bot.send_message(TELEGRAM_CHAT_ID, message)
+        logging.info("Сообщение успешно отправлено")
+    except Exception as send_message_error:
+        raise TelegramBot('Ошибка отправки сообщения', send_message_error)
 
 
 def get_api_answer(current_timestamp: int) -> dict:
@@ -75,16 +78,59 @@ def get_api_answer(current_timestamp: int) -> dict:
 
     :raises ApiError: Возникает ошибка при ошибках обращения к API
     """
-    timestamp = current_timestamp or int(time.time())
-    params = {"from_date": timestamp}
-    homework_statuses = requests.get(ENDPOINT, headers=HEADERS, params=params)
-    if homework_statuses.status_code == HTTPStatus.OK:
-        return homework_statuses.json()
-    elif (homework_statuses.status_code == HTTPStatus.NOT_FOUND
-          and HTTPStatus.FOUND):
-        raise ApiError
+    if type(current_timestamp) != int and type(current_timestamp) != float:
+        timestamp = int(time.time())
+        logger.error(f'В функцию {get_api_answer.__name__} передано неверное '
+                     f'значение current_timestamp: ({current_timestamp}). '
+                     f'Исправляю на текущее время {timestamp}')
     else:
-        raise ApiError
+        timestamp = current_timestamp
+
+    params = {"from_date": timestamp}
+
+    try:
+        homework_statuses = requests.get(ENDPOINT,
+                                         headers=HEADERS,
+                                         params=params)
+        homework_status_code = homework_statuses.status_code
+        if homework_status_code != HTTPStatus.OK:
+            if homework_status_code == HTTPStatus.UNAUTHORIZED:
+                homework_statuses = homework_statuses.json()
+                homework_status_request = (homework_statuses.get(
+                    'code') or homework_statuses.get('error'))
+                print(homework_statuses)
+                raise ApiError(f'Обнаружена ошибка возвращаемая API: '
+                               f'{homework_status_request} - '
+                               f'{homework_statuses.get("message")}, '
+                               f'ответ сервера {homework_status_code}',
+                               f'Эндпоинт: {ENDPOINT}, Параметры: {params}'
+                               )
+            else:
+                raise ApiError(f'Ошибка: {homework_statuses.status_code}',
+                               HTTPStatus(
+                                   homework_statuses.status_code).description,
+                               f'Эндпоинт: {ENDPOINT}, Параметры: {params}')
+        else:
+            homework_statuses = homework_statuses.json()
+    except requests.ConnectionError as e:
+        error_message = (
+            "OOPS!! ошибка соединения. Убедитесь, что вы подключены к "
+            "Интернету. Технические подробности приведены ниже.\n", e)
+        raise ApiError(error_message)
+    except requests.Timeout as e:
+        error_message = ("OOPS!! Ошибка тайм-аута", e)
+        raise ApiError(error_message)
+    except requests.RequestException as e:
+        error_message = ("OOPS!! General Error", e)
+        raise ApiError(error_message)
+    except KeyboardInterrupt:
+        error_message = "Кто-то закрыл программу"
+        raise ApiError(error_message)
+    except Exception as requests_error:
+        raise ApiError(
+            f'Возникла ошибка при обращении к API [{requests_error}]')
+    else:
+        return homework_statuses
 
 
 def check_response(response) -> Union[bool, dict]:
@@ -149,21 +195,23 @@ def check_tokens() -> bool:
 
     :raises TokenError: Отсутствие обязательной переменной
     """
+    tokens = {PRACTICUM_TOKEN: 'PRACTICUM_TOKEN',
+              TELEGRAM_TOKEN: 'TELEGRAM_TOKEN',
+              TELEGRAM_CHAT_ID: 'TELEGRAM_CHAT_ID'}
     try:
-        if PRACTICUM_TOKEN:
-            pass
-        if TELEGRAM_TOKEN:
-            pass
-        if TELEGRAM_CHAT_ID:
-            pass
-        else:
-            raise TokenError
-    except TokenError:
-        logger.critical("Отсутствует обязательная переменная! Остановка")
+        for valid_tokens in tokens:
+            if valid_tokens and len(str(valid_tokens)) > 1:
+                pass
+            else:
+                raise TokenError(tokens[valid_tokens])
+    except TokenError as token_error:
+        logger.critical(f"Отсутствует обязательная переменная: {token_error}.")
     else:
         return True
 
-
+# Не совсем понял как тут решить ошибку C901, так как тут в основном
+# идет проверка на исключения
+# flake8: noqa: C901
 def main():
     """Основная логика работы бота.
 
@@ -177,10 +225,16 @@ def main():
     if not check_tokens():
         sys.exit()
 
-    bot = Bot(token=TELEGRAM_TOKEN)
-    #current_timestamp = int(time.time())
+    try:
+        bot = telegram.Bot(token=TELEGRAM_TOKEN)
+    except telegram.error.Unauthorized as error_authorized:
+        logger.critical('Ошибка при авторизация в Telegram', error_authorized)
+        sys.exit()
+    except Exception as error:
+        logger.error('Ошибка инициализации Telegram', error)
+        sys.exit()
 
-    current_timestamp = 0
+    current_timestamp = int(time.time())
 
     api_error = 0
 
@@ -197,6 +251,10 @@ def main():
             current_timestamp = response["current_date"]
             time.sleep(RETRY_TIME)
 
+        except TelegramBot as telegram_bot_error:
+            logger.error("Возникла ошибка с отправкой сообщения:",
+                         telegram_bot_error)
+            time.sleep(RETRY_TIME)
         except ParseNoneStatus as error_status:
             message = (
                 f"Сбой в работе, недокументированный статус домашней "
